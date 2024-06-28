@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=58.0.4", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 88
+target-version = ["py36", "py37", "py38", "py39"]
+
+[tool.isort]
+profile = "black"
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = "E203, W503"
+
+[tool.mypy]
+ignore_missing_imports = true

@@ -5,44 +5,31 @@ parent, root = file.parent, file.parents[1]
 sys.path.append(str(root))
 
 import typing as t
-import re
 import joblib
 import pandas as pd
 from sklearn.pipeline import Pipeline
-
-from titanic_model import __version__ as _version
-from titanic_model.config.core import DATASET_DIR, TRAINED_MODEL_DIR, config
+from bikeshare_model import __version__ as _version
+from bikeshare_model.config.core import DATASET_DIR, TRAINED_MODEL_DIR, config
+from bikeshare_model.processing.features import WeekdayImputer, OutlierHandler, WeathersitImputer, WeekdayOneHotEncoder
+from sklearn.preprocessing import OneHotEncoder
 
 
 ##  Pre-Pipeline Preparation
+def get_year_and_month(dataframe):
 
-# 1. Extracts the title (Mr, Ms, etc) from the name variable
-def get_title(passenger:str) -> str:
-    line = passenger
-    if re.search('Mrs', line):
-        return 'Mrs'
-    elif re.search('Mr', line):
-        return 'Mr'
-    elif re.search('Miss', line):
-        return 'Miss'
-    elif re.search('Master', line):
-        return 'Master'
-    else:
-        return 'Other'
+    data_frame = dataframe.copy()
+    # convert 'dteday' column to Datetime datatype
+    data_frame['dteday'] = pd.to_datetime(data_frame['dteday'], format='%Y-%m-%d')
+    # Add new features 'yr' and 'mnth
+    data_frame['yr'] = data_frame['dteday'].dt.year
+    data_frame['mnth'] = data_frame['dteday'].dt.month_name()
+
+    return data_frame
+
     
-# 2. processing cabin
-
-f1=lambda x: 0 if type(x) == float else 1  ## Ternary Expression
-  
-
+# 2. processing data
 def pre_pipeline_preparation(*, data_frame: pd.DataFrame) -> pd.DataFrame:
-
-    data_frame["Title"] = data_frame["Name"].apply(get_title)       # Fetching title
-
-    data_frame['FamilySize'] = data_frame['SibSp'] + data_frame['Parch'] + 1  # Family size
-
-    data_frame['Has_cabin']=data_frame['Cabin'].apply(f1)               #  processing cabin 
-
+    data_frame = get_year_and_month(data_frame)
     # drop unnecessary variables
     data_frame.drop(labels=config.model_config.unused_fields, axis=1, inplace=True)
 
@@ -51,6 +38,7 @@ def pre_pipeline_preparation(*, data_frame: pd.DataFrame) -> pd.DataFrame:
 
 def _load_raw_dataset(*, file_name: str) -> pd.DataFrame:
     dataframe = pd.read_csv(Path(f"{DATASET_DIR}/{file_name}"))
+    assert 'dteday' in dataframe.columns, "dteday column is missing in the dataset"
     return dataframe
 
 def load_dataset(*, file_name: str) -> pd.DataFrame:
@@ -95,3 +83,29 @@ def remove_old_pipelines(*, files_to_keep: t.List[str]) -> None:
     for model_file in TRAINED_MODEL_DIR.iterdir():
         if model_file.name not in do_not_delete:
             model_file.unlink()
+
+
+def handle_outliers(dataframe, colm):
+
+    df = dataframe.copy()
+    q1 = df.describe()[colm].loc['25%']
+    q3 = df.describe()[colm].loc['75%']
+    iqr = q3 - q1
+    lower_bound = q1 - (1.5 * iqr)
+    upper_bound = q3 + (1.5 * iqr)
+    for i in df.index:
+        if df.loc[i,colm] > upper_bound:
+            df.loc[i,colm]= upper_bound
+        if df.loc[i,colm] < lower_bound:
+            df.loc[i,colm]= lower_bound
+
+    return df
+
+
+def impute_weekday(dataframe):
+    df = dataframe.copy()
+    df['dteday'] = pd.to_datetime(df['dteday'], format='%Y-%m-%d')
+    wkday_null_idx = df[df['weekday'].isnull() == True].index
+    df.loc[wkday_null_idx, 'weekday'] = df.loc[wkday_null_idx, 'dteday'].dt.day_name().apply(lambda x: x[:3])
+
+    return df
